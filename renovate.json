@@ -1,0 +1,23 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":semanticCommits"],
+  "lockFileMaintenance": { "enabled": true, "schedule": ["before 5am on monday"] },
+  "packageRules": [
+    {
+      "description": "Batch routine Python updates into one PR.",
+      "matchManagers": ["pep621"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "python dependencies"
+    },
+    {
+      "description": "The MCP SDK changes the tool API; review these alone.",
+      "matchPackageNames": ["mcp"],
+      "groupName": "mcp sdk"
+    },
+    {
+      "description": "Pin GitHub Actions to a digest.",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    }
+  ]
+}

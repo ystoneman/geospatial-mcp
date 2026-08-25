@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ystoneman/geospatial-mcp/security/advisories/new
+    about: Report privately. Please do not open a public issue.
+  - name: Upstream data or service problem
+    url: https://www.openstreetmap.org/copyright
+    about: Wrong map data, geocoding results or routing usually needs fixing upstream at OpenStreetMap.

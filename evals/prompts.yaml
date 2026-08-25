@@ -1,0 +1,586 @@
+# Tool-selection eval library.
+#
+# Every case states the question the way a real user would ask it -- never
+# "call tool X with argument Y". The point is to measure whether the tool
+# surface leads a model to the right choice unaided.
+#
+# Fields:
+#   id             stable identifier, <persona>-<topic>-<n>
+#   persona        the industry this question comes from
+#   axis           which failure mode this case guards (see README)
+#   prompt         what the user asks
+#   expect_tools   tools that must be called (order-independent)
+#   optional_tools acceptable extras that do not count against precision
+#   forbid_tools   near-neighbours that indicate a wrong turn
+#   validate       how the keyless runner checks the chain: tool + args + assertions
+#   rubric         what a correct final answer must contain (agent mode)
+#   network        true if the chain needs live API access
+#   max_turns      turn budget for agent mode
+
+cases:
+
+# ---------------------------------------------------------------- logistics
+- id: logistics-drive-time-001
+  persona: logistics
+  axis: disambiguation
+  prompt: >
+    How long will it take to drive from our depot at 48.8584,2.2945 to the
+    customer at 48.8606,2.3376?
+  expect_tools: [route_directions]
+  forbid_tools: [geom_measure, route_isochrone]
+  network: true
+  validate:
+    - tool: route_directions
+      args: {origin: "48.8584,2.2945", destination: "48.8606,2.3376"}
+      assert: ["distance_km > 0", "duration_s > 0", "len(steps) > 0"]
+  rubric: >
+    Gives a travel time in minutes and a road distance. Does not report
+    straight-line distance as if it were driving distance.
+  max_turns: 4
+
+- id: logistics-straightline-002
+  persona: logistics
+  axis: disambiguation
+  prompt: >
+    What is the straight-line distance between our two warehouses at
+    48.8584,2.2945 and 51.5007,-0.1246? I need the great-circle figure for a
+    freight-rate band, not a driving route.
+  expect_tools: [geom_measure]
+  forbid_tools: [route_directions, route_isochrone]
+  network: false
+  validate:
+    - tool: geom_measure
+      args: {origin: "48.8584,2.2945", destination: "51.5007,-0.1246"}
+      assert: ["340 < distance_km < 342", "meta.offline is True"]
+  rubric: Reports roughly 341 km as a straight-line/geodesic distance.
+  max_turns: 3
+
+- id: logistics-catchment-003
+  persona: logistics
+  axis: disambiguation
+  prompt: >
+    We are siting a same-day delivery hub at 48.8584,2.2945. Show me everywhere
+    a van can reach within 20 minutes.
+  expect_tools: [route_isochrone]
+  forbid_tools: [route_directions, geom_transform]
+  network: true
+  validate:
+    - tool: route_isochrone
+      args: {location: "48.8584,2.2945", minutes: "20", profile: car}
+      assert: ["len(contours) == 1", "contours[0]['area_km2'] > 5"]
+  rubric: Returns a reachable-area polygon and states its size.
+  max_turns: 4
+
+- id: logistics-truck-restrictions-004
+  persona: logistics
+  axis: persona
+  prompt: >
+    Plan a route for a 40-tonne articulated lorry from 51.5007,-0.1246 to
+    51.4545,-2.5879. It must respect weight and height restrictions.
+  expect_tools: [route_directions]
+  network: true
+  validate:
+    - tool: route_directions
+      args: {origin: "51.5007,-0.1246", destination: "51.4545,-2.5879", profile: truck}
+      assert: ["distance_km > 100", "profile == 'truck'"]
+  rubric: Uses a heavy-goods vehicle profile, not a car profile.
+  max_turns: 4
+
+- id: logistics-nearest-depot-005
+  persona: logistics
+  axis: disambiguation
+  prompt: >
+    We have depots at 48.8584,2.2945 and 48.8606,2.3376, and three jobs today at
+    48.8530,2.3499, 48.8738,2.2950 and 48.8867,2.3431. Which depot should serve
+    each job, going by drive time?
+  expect_tools: [route_matrix]
+  forbid_tools: [geom_measure, route_isochrone]
+  network: true
+  validate:
+    - tool: route_matrix
+      args:
+        origins: "48.8584,2.2945; 48.8606,2.3376"
+        destinations: "48.8530,2.3499; 48.8738,2.2950; 48.8867,2.3431"
+      assert:
+        - "len(duration_s) == 2 and len(duration_s[0]) == 3"
+        - "all(t is not None for row in duration_s for t in row)"
+        - "len(nearest) == 2"
+  rubric: >
+    Assigns each job to the depot with the shorter drive time, using one matrix
+    call rather than six separate route requests, and does not decide by
+    straight-line distance.
+  max_turns: 4
+
+# ------------------------------------------------------------------ telecom
+- id: telecom-link-qualify-001
+  persona: telecom
+  axis: disambiguation
+  prompt: >
+    A customer at 46.6,8.0 wants fixed wireless from our tower at 46.5,7.9.
+    Before we quote, what does the ground do between the two?
+  expect_tools: [terrain_profile]
+  optional_tools: [rf_link_budget]
+  forbid_tools: [terrain_elevation, route_directions, place_geocode]
+  network: true
+  validate:
+    - tool: terrain_profile
+      args:
+        origin: "46.5,7.9"
+        destination: "46.6,8.0"
+        samples: 25
+      assert: ["len(profile) == 25", "'relief_m' in statistics"]
+  rubric: >
+    Reports the terrain between the two points -- relief, the high point, total
+    climb -- and does not assert that the link will or will not close, which the
+    profile alone cannot decide.
+  max_turns: 5
+
+- id: telecom-cell-sizing-002
+  persona: telecom
+  axis: persona
+  prompt: >
+    For an LTE macro cell at 1800 MHz in a dense urban area, 43 dBm transmit,
+    15 dBi antenna at 45 m, receiver sensitivity -105 dBm -- what cell radius
+    should I plan for?
+  expect_tools: [rf_link_budget]
+  forbid_tools: [rf_towers, terrain_profile]
+  network: false
+  validate:
+    - tool: rf_link_budget
+      args: {frequency_mhz: 1800, tx_power_dbm: 43, tx_gain_dbi: 15,
+             tx_height_m: 45, rx_sensitivity_dbm: -105, environment: dense_urban}
+      assert: ["0.1 < cell_radius_km < 20", "max_allowable_path_loss_db > 100"]
+  rubric: Gives a radius in km and states the propagation model used.
+  max_turns: 3
+
+- id: telecom-band-choice-003
+  persona: telecom
+  axis: chain
+  prompt: >
+    We can deploy suburban LTE on either 900 MHz or 1800 MHz, both at 43 dBm
+    into a 15 dBi antenna at 45 m. How much does the band change the cell
+    radius, and roughly how many more sites would the higher band need to cover
+    the same 12 km square?
+  expect_tools: [rf_link_budget]
+  optional_tools: [geom_measure]
+  forbid_tools: [rf_towers, place_geocode]
+  network: false
+  validate:
+    - tool: rf_link_budget
+      args: {frequency_mhz: 900, environment: suburban, tx_power_dbm: 43,
+             tx_gain_dbi: 15, tx_height_m: 45}
+      assert: ["cell_radius_km > 0"]
+    - tool: rf_link_budget
+      args: {frequency_mhz: 1800, environment: suburban, tx_power_dbm: 43,
+             tx_gain_dbi: 15, tx_height_m: 45}
+      assert: ["cell_radius_km > 0"]
+  rubric: >
+    Runs the budget at both frequencies, reports both radii, and reasons from
+    cell area to a site count rather than guessing one. Names the propagation
+    model, and repeats any out-of-range warning it returns.
+  max_turns: 6
+
+# -------------------------------------------------------------- agriculture
+- id: agriculture-spray-window-001
+  persona: agriculture
+  axis: persona
+  prompt: >
+    I need a spray window for the field at 52.2053,0.1218 in the next three
+    days -- low wind and no rain.
+  expect_tools: [env_weather]
+  optional_tools: [sun_moon]
+  network: true
+  validate:
+    - tool: env_weather
+      args: {location: "52.2053,0.1218", days: 3}
+      assert: ["len(daily) >= 3", "'current' in result"]
+  rubric: Identifies specific days by wind speed and precipitation.
+  max_turns: 4
+
+- id: agriculture-field-area-002
+  persona: agriculture
+  axis: persona
+  prompt: >
+    What is the area in hectares of this field?
+    {"type":"Polygon","coordinates":[[[0.118,52.203],[0.128,52.203],[0.128,52.210],[0.118,52.210],[0.118,52.203]]]}
+  expect_tools: [geom_measure]
+  forbid_tools: [geom_transform, geom_overlay]
+  network: false
+  validate:
+    - tool: geom_measure
+      args:
+        origin: "52.2053,0.1218"
+        geojson: '{"type":"Polygon","coordinates":[[[0.118,52.203],[0.128,52.203],[0.128,52.210],[0.118,52.210],[0.118,52.203]]]}'
+      assert: ["geometry['area_hectares'] > 0", "meta.offline is True"]
+  rubric: Reports an area in hectares, computed geodesically.
+  max_turns: 3
+
+# ----------------------------------------------------------------- insurance
+- id: insurance-exposure-001
+  persona: insurance
+  axis: chain
+  prompt: >
+    Our policyholder is at 48.8584,2.2945. How much of a 5 km radius around
+    them overlaps this flood zone?
+    {"type":"Polygon","coordinates":[[[2.25,48.83],[2.35,48.83],[2.35,48.88],[2.25,48.88],[2.25,48.83]]]}
+  expect_tools: [geom_transform, geom_overlay]
+  network: false
+  validate:
+    - tool: geom_transform
+      args: {geojson: '{"type":"Point","coordinates":[2.2945,48.8584]}',
+             operation: buffer, distance_m: 5000}
+      assert: ["measurements['area_km2'] > 70"]
+    - tool: geom_overlay
+      args:
+        geojson_a: '{"type":"Point","coordinates":[2.2945,48.8584]}'
+        geojson_b: '{"type":"Polygon","coordinates":[[[2.25,48.83],[2.35,48.83],[2.35,48.88],[2.25,48.88],[2.25,48.83]]]}'
+        operation: intersection
+      assert: ["'measurements' in result"]
+  rubric: Buffers the location then intersects, reporting overlap area and percentage.
+  max_turns: 6
+
+# --------------------------------------------------------------- real estate
+- id: realestate-ridge-001
+  persona: real_estate
+  axis: disambiguation
+  prompt: >
+    A client at 46.5,7.9 is worried about a development proposed at 46.6,8.0.
+    Is there higher ground in between, or does the land fall away?
+  expect_tools: [terrain_profile]
+  forbid_tools: [terrain_elevation, route_directions]
+  network: true
+  validate:
+    - tool: terrain_profile
+      args: {origin: "46.5,7.9", destination: "46.6,8.0", samples: 25}
+      assert: ["'max_m' in statistics", "'relief_m' in statistics"]
+  rubric: >
+    Describes the shape of the ground between the two points -- the high point
+    and where it sits along the line -- rather than only the two endpoint
+    elevations.
+  max_turns: 4
+
+- id: realestate-amenities-002
+  persona: real_estate
+  axis: disambiguation
+  prompt: >
+    What schools are within 1.5 km of 48.8584,2.2945?
+  expect_tools: [place_search]
+  forbid_tools: [place_geocode, place_reverse]
+  network: true
+  validate:
+    - tool: place_search
+      args: {location: "48.8584,2.2945", category: school, radius_m: 1500}
+      assert: ["'places' in result", "count >= 0"]
+  rubric: Lists schools with distances. Does not geocode a single named place.
+  max_turns: 4
+
+# ------------------------------------------------------- emergency response
+- id: emergency-grid-reference-001
+  persona: emergency_response
+  axis: polymorphism
+  prompt: >
+    Incident command passed me grid 31U DQ 48252 11954 over the radio. What is
+    that in latitude and longitude, and how precise is it?
+  expect_tools: [coord_convert]
+  optional_tools: [coord_describe]
+  forbid_tools: [place_geocode, coord_transform_crs]
+  network: false
+  validate:
+    - tool: coord_convert
+      args: {location: "31U DQ 48252 11954"}
+      assert: ["48.85 < formats['latitude'] < 48.86", "input_precision_m == 1.0"]
+  rubric: >
+    Gives decimal degrees and states the grid square size. May note that a grid
+    reference names the south-west corner of the square.
+  max_turns: 3
+
+- id: emergency-response-catchment-002
+  persona: emergency_response
+  axis: persona
+  prompt: >
+    How much of the area around our fire station at 48.8584,2.2945 can an
+    appliance reach in 8 minutes?
+  expect_tools: [route_isochrone]
+  network: true
+  validate:
+    - tool: route_isochrone
+      args: {location: "48.8584,2.2945", minutes: "8", profile: car}
+      assert: ["len(contours) >= 1"]
+  rubric: Returns an 8-minute reachable area with its size in km2.
+  max_turns: 4
+
+- id: emergency-daylight-003
+  persona: emergency_response
+  axis: persona
+  prompt: >
+    We are running a search at 46.5,7.9 on 2026-06-21. How much usable daylight
+    do we have, and when does civil twilight end?
+  expect_tools: [sun_moon]
+  forbid_tools: [env_weather, time_at_location]
+  network: false
+  validate:
+    - tool: sun_moon
+      args: {location: "46.5,7.9", on_date: "2026-06-21"}
+      assert: ["sun['daylight_hours'] > 14", "sun['dusk'] is not None"]
+  rubric: Gives sunrise, sunset and civil twilight times with total daylight hours.
+  max_turns: 3
+
+# ------------------------------------------------------------------ utilities
+- id: utilities-slope-001
+  persona: utilities
+  axis: chain
+  prompt: >
+    We are trenching a cable from 46.5,7.9 to 46.55,7.95. What is the total
+    climb and the steepest section?
+  expect_tools: [terrain_profile]
+  forbid_tools: [terrain_elevation, route_directions]
+  network: true
+  validate:
+    - tool: terrain_profile
+      args: {origin: "46.5,7.9", destination: "46.55,7.95", samples: 30}
+      assert: ["statistics['total_ascent_m'] >= 0", "len(profile) == 30"]
+  rubric: Reports total ascent and descent, not just the endpoint elevations.
+  max_turns: 4
+
+- id: utilities-single-elevation-002
+  persona: utilities
+  axis: disambiguation
+  prompt: How high above sea level is the substation at 46.5,7.9?
+  expect_tools: [terrain_elevation]
+  forbid_tools: [terrain_profile, place_reverse]
+  network: true
+  validate:
+    - tool: terrain_elevation
+      args: {location: "46.5,7.9"}
+      assert: ["elevation_m is not None", "elevation_m > 0"]
+  rubric: Gives one elevation in metres and names the vertical datum.
+  max_turns: 3
+
+# ----------------------------------------------------------------- surveying
+- id: surveying-national-grid-001
+  persona: surveying
+  axis: disambiguation
+  prompt: >
+    Convert 51.5007,-0.1246 to British National Grid eastings and northings,
+    and tell me how accurate the transform is.
+  expect_tools: [coord_transform_crs]
+  forbid_tools: [coord_convert, coord_describe]
+  network: false
+  validate:
+    - tool: coord_transform_crs
+      args: {x: -0.1246, y: 51.5007, source_crs: "EPSG:4326", target_crs: "EPSG:27700"}
+      assert: ["530000 < x < 531000", "179000 < y < 180000", "'ballpark' in result"]
+  rubric: >
+    Gives eastings and northings and reports the transform accuracy, flagging a
+    ballpark datum shift if one was used.
+  max_turns: 3
+
+- id: surveying-format-check-002
+  persona: surveying
+  axis: error_recovery
+  prompt: >
+    Is "10SGJ068" a valid grid reference? If not, fix it and give me the
+    coordinates.
+  expect_tools: [coord_describe]
+  optional_tools: [coord_convert]
+  network: false
+  validate:
+    - tool: coord_describe
+      args: {value: "10SGJ068"}
+      assert: ["is_valid is False", "'problem' in result"]
+  rubric: >
+    Identifies that the digit count is odd, explains that easting and northing
+    must be the same length, and proposes a corrected reference.
+  max_turns: 5
+
+# ------------------------------------------------------------------ maritime
+- id: maritime-distance-001
+  persona: maritime
+  axis: persona
+  prompt: >
+    What is the distance in nautical miles and the initial bearing from
+    50.1109,-1.8000 to 49.6500,-1.6200?
+  expect_tools: [geom_measure]
+  network: false
+  validate:
+    - tool: geom_measure
+      args: {origin: "50.1109,-1.8000", destination: "49.6500,-1.6200"}
+      assert: ["distance_nautical_miles > 20", "0 <= initial_bearing_deg < 360"]
+  rubric: Gives nautical miles and a true bearing in degrees.
+  max_turns: 3
+
+- id: maritime-timezone-002
+  persona: maritime
+  axis: persona
+  prompt: What time zone applies at 0,-140, in the middle of the Pacific?
+  expect_tools: [time_at_location]
+  network: false
+  validate:
+    - tool: time_at_location
+      args: {location: "0,-140"}
+      assert: ["'info' in result"]
+  rubric: >
+    Explains that no civil time zone is defined over international waters and
+    gives the nautical offset from longitude.
+  max_turns: 3
+
+# ------------------------------------------------------------------ consumer
+- id: consumer-golden-hour-001
+  persona: consumer
+  axis: persona
+  prompt: >
+    I am photographing the Eiffel Tower on 2026-06-21. When is golden hour?
+  expect_tools: [sun_moon]
+  optional_tools: [place_geocode]
+  network: true
+  validate:
+    - tool: sun_moon
+      args: {location: "Eiffel Tower, Paris", on_date: "2026-06-21"}
+      assert: ["sun['golden_hour_evening'] is not None"]
+  rubric: Gives golden-hour start and end times in local time.
+  max_turns: 4
+
+- id: consumer-plus-code-002
+  persona: consumer
+  axis: polymorphism
+  prompt: What is the weather at Plus Code 8FW4V75V+9R6?
+  expect_tools: [env_weather]
+  forbid_tools: [place_geocode, coord_convert]
+  network: true
+  validate:
+    - tool: env_weather
+      args: {location: "8FW4V75V+9R6", days: 1}
+      assert: ["'current' in result"]
+  rubric: Resolves the Plus Code and reports current conditions.
+  max_turns: 3
+
+- id: consumer-address-lookup-003
+  persona: consumer
+  axis: disambiguation
+  prompt: What is the street address at 48.8584,2.2945?
+  expect_tools: [place_reverse]
+  forbid_tools: [place_geocode, place_search]
+  network: true
+  validate:
+    - tool: place_reverse
+      args: {location: "48.8584,2.2945"}
+      assert: ["len(display_name) > 0", "'address' in result"]
+  rubric: Gives a street address, not a list of nearby places.
+  max_turns: 3
+
+# ------------------------------------------------------- format conversion
+- id: data-kml-to-geojson-001
+  persona: gis
+  axis: persona
+  prompt: >
+    A client sent me this KML. Convert it to GeoJSON.
+    <kml xmlns="http://www.opengis.net/kml/2.2"><Document><Placemark><LineString>
+    <coordinates>2.29,48.85,0 2.30,48.86,0 2.31,48.87,0</coordinates>
+    </LineString></Placemark></Document></kml>
+  expect_tools: [data_convert]
+  network: false
+  validate:
+    - tool: data_convert
+      args:
+        data: "<kml xmlns=\"http://www.opengis.net/kml/2.2\"><Document><Placemark><LineString><coordinates>2.29,48.85,0 2.30,48.86,0 2.31,48.87,0</coordinates></LineString></Placemark></Document></kml>"
+        to_format: geojson
+      assert: ["input_format == 'kml'", "'LineString' in output"]
+  rubric: Returns valid GeoJSON and confirms it validates.
+  max_turns: 3
+
+- id: data-swapped-coords-002
+  persona: gis
+  axis: error_recovery
+  prompt: >
+    Something is wrong with this GeoJSON, my map shows nothing.
+    {"type":"Point","coordinates":[48.8584,148.2945]}
+  expect_tools: [data_convert]
+  optional_tools: [coord_describe]
+  network: false
+  validate:
+    - tool: data_convert
+      args: {data: '{"type":"Point","coordinates":[2.2945,48.8584]}', to_format: geojson}
+      assert: ["validation['valid'] is True"]
+  rubric: >
+    Identifies that latitude 148 is out of range and that the coordinates are
+    likely transposed, since RFC 7946 orders them [longitude, latitude].
+  max_turns: 4
+
+# ---------------------------------------------------------- gap awareness
+- id: meta-capability-gap-001
+  persona: gis
+  axis: gap_awareness
+  prompt: >
+    Run a Getis-Ord hot-spot analysis on my crime-incident points.
+  expect_tools: [geo_capabilities]
+  forbid_tools: [geom_relate, geom_overlay, place_search]
+  network: false
+  validate:
+    - tool: geo_capabilities
+      args: {}
+      assert: ["'enabled_toolsets' in result", "'how_to_enable' in result"]
+  rubric: >
+    Reports that spatial-statistics tools are not enabled in this configuration
+    and says how to enable them. Does not invent a tool or claim it is impossible.
+  max_turns: 4
+
+- id: meta-polymorphic-same-answer-001
+  persona: gis
+  axis: polymorphism
+  prompt: What is the elevation at 31UDQ4825211954?
+  expect_tools: [terrain_elevation]
+  forbid_tools: [coord_convert]
+  network: true
+  validate:
+    - tool: terrain_elevation
+      args: {location: "31UDQ4825211954"}
+      assert: ["elevation_m is not None"]
+  rubric: >
+    Accepts the USNG/MGRS grid reference directly without a separate conversion
+    step and reports an elevation.
+  max_turns: 3
+
+# --------------------------------------------- analysis toolset (opt-in)
+- id: retail-cluster-001
+  persona: retail
+  axis: disambiguation
+  toolsets: [core, analysis]
+  prompt: >
+    Here are our delivery-failure locations. Where are they concentrating?
+    48.8584,2.2945; 48.8586,2.2947; 48.8588,2.2949; 48.8590,2.2951;
+    51.5007,-0.1246; 51.5009,-0.1244; 51.5011,-0.1242; 40.7128,-74.0060
+  expect_tools: [stats_cluster]
+  forbid_tools: [coord_grid_cells, geom_relate]
+  network: false
+  validate:
+    - tool: stats_cluster
+      args:
+        points: "48.8584,2.2945; 48.8586,2.2947; 48.8588,2.2949; 48.8590,2.2951; 51.5007,-0.1246; 51.5009,-0.1244; 51.5011,-0.1242; 40.7128,-74.0060"
+        eps_m: 500
+        min_samples: 3
+      assert: ["cluster_count == 2", "len(noise_indices) == 1"]
+  rubric: >
+    Identifies two clusters and reports the outlier separately rather than
+    forcing it into one.
+  max_turns: 4
+
+- id: retail-binning-002
+  persona: retail
+  axis: disambiguation
+  toolsets: [core, analysis]
+  prompt: >
+    Aggregate these customer locations into roughly city-block sized hexagons
+    so I can build a heat map.
+    48.8584,2.2945; 48.8586,2.2947; 48.8700,2.3100; 48.8702,2.3102
+  expect_tools: [coord_grid_cells]
+  forbid_tools: [stats_cluster]
+  network: false
+  validate:
+    - tool: coord_grid_cells
+      args:
+        points: "48.8584,2.2945; 48.8586,2.2947; 48.8700,2.3100; 48.8702,2.3102"
+        system: h3
+        resolution: 9
+      assert: ["cell_count >= 1", "point_count == 4"]
+  rubric: Returns H3 cells with counts, suitable for a heat map.
+  max_turns: 4

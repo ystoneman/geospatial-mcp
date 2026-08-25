@@ -1,0 +1,24 @@
+name: Capability request
+description: Suggest a geospatial capability this server should have.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What question are you trying to answer?
+      description: Describe the real task, not the API you imagine. It often turns out an existing tool covers it.
+    validations:
+      required: true
+  - type: input
+    id: industry
+    attributes:
+      label: What are you building?
+      placeholder: e.g. fleet routing, wireless ISP planning, crop monitoring
+  - type: textarea
+    id: data
+    attributes:
+      label: Is there an open data source or permissively-licensed library for this?
+      description: >
+        We can only add capabilities backed by permissively-licensed code
+        (MIT/BSD/Apache-2.0) and, preferably, keyless data sources. See
+        CONTRIBUTING.md for what we cannot take.

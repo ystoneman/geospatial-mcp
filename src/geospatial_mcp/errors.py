@@ -1,0 +1,95 @@
+"""Error types.
+
+Design rule, and the single most important behavioural contract in this
+package: **tools raise, they never return an error payload.**
+
+Returning ``{"status": "error", ...}`` from a failed tool is the tempting shape
+and the wrong one. MCP marks such a response ``is_error=False``, so the model
+reads the failure as a success and proceeds on made-up data. Raising sets
+``is_error=True`` and puts the message in front of the model, which can then
+correct itself.
+
+Two tiers:
+
+* :class:`GeoInputError` and its subclasses -- the model can plausibly recover.
+  The message reaches the model, so it must say what was received, why that is
+  wrong, and show a valid example.
+* :class:`GeoConfigError` -- operator misconfiguration the model cannot fix
+  (missing API key, bad base URL). Raised as ``MCPError`` so the host sees it.
+"""
+
+from __future__ import annotations
+
+__all__ = [
+    "GeoConfigError",
+    "GeoError",
+    "GeoInputError",
+    "GeoNoResults",
+    "GeoRateLimited",
+    "GeoUnavailable",
+    "GeoUpstreamError",
+]
+
+
+class GeoError(Exception):
+    """Base class for every error this package raises deliberately."""
+
+
+class GeoInputError(GeoError, ValueError):
+    """The caller supplied something invalid, and could retry successfully.
+
+    Always construct with :meth:`with_example` where a concrete example exists.
+    ``tests/mcp/test_error_quality.py`` asserts that every input error message
+    a tool can produce contains a usable example.
+    """
+
+    @classmethod
+    def with_example(cls, *, got: object, problem: str, example: str) -> GeoInputError:
+        """Build a message that names the input, the problem, and a fix."""
+        return cls(f"{problem} Received: {got!r}. Example of a valid value: {example}")
+
+
+class GeoConfigError(GeoError):
+    """The server is misconfigured; the model cannot fix this by retrying."""
+
+
+class GeoUpstreamError(GeoError):
+    """An upstream provider returned an error or an unparseable response."""
+
+
+class GeoRateLimited(GeoUpstreamError):
+    """An upstream provider rate-limited us.
+
+    Carries ``retry_after_s`` so the message can tell the model how long to
+    wait rather than leaving it to guess or spin.
+    """
+
+    def __init__(self, provider: str, retry_after_s: float | None = None) -> None:
+        self.provider = provider
+        self.retry_after_s = retry_after_s
+        wait = (
+            f" Retry after about {retry_after_s:.0f}s." if retry_after_s else " Retry in a minute."
+        )
+        super().__init__(
+            f"{provider} rate-limited this request.{wait}"
+            " Results are cached, so repeating an identical earlier query is free."
+        )
+
+
+class GeoNoResults(GeoError):
+    """A query was well-formed but matched nothing.
+
+    Distinct from an error: the model should widen or rephrase, not retry
+    verbatim.
+    """
+
+
+class GeoUnavailable(GeoError):
+    """An optional dependency or dataset needed for this tool is not installed."""
+
+    def __init__(self, feature: str, extra: str) -> None:
+        super().__init__(
+            f"{feature} requires the optional '{extra}' extra, which is not installed. "
+            f"Install it with:  uvx --with 'geospatial-mcp[{extra}]' geospatial-mcp   "
+            f"(or:  pip install 'geospatial-mcp[{extra}]')"
+        )

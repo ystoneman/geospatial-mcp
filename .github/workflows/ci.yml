@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Tests must not reach the network; conftest enforces it, this makes any
+  # accidental attempt fail fast rather than hang.
+  GEO_CACHE: "0"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - name: ruff check
+        run: uv run ruff check src tests evals
+      - name: ruff format
+        run: uv run ruff format --check src tests evals
+
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - run: uv run mypy
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.11", "3.12", "3.13"]
+        include:
+          # Confirm the pure-wheel promise holds off Linux too.
+          - os: macos-latest
+            python: "3.12"
+          - os: windows-latest
+            python: "3.12"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - run: uv sync
+      - run: uv run pytest -q --cov=geospatial_mcp --cov-report=term-missing
+
+  evals:
+    # Validates that the eval library still matches the tool surface. Offline
+    # cases only -- the network ones run in live-apis.yml.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+      - run: uv run python evals/run.py --mode validate
+
+  install-check:
+    # The uvx promise: a clean install with no system packages, on every OS.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build the wheel
+        run: uv build
+      - name: Install it into a clean environment and list the tools
+        shell: bash
+        run: |
+          uv venv /tmp/clean
+          uv pip install --python /tmp/clean dist/*.whl
+          uv run --python /tmp/clean geospatial-mcp --version
+          uv run --python /tmp/clean geospatial-mcp --list-tools > /tmp/tools.json
+          python -c "import json,sys; t=json.load(open('/tmp/tools.json')); print(f'{len(t)} tools'); sys.exit(0 if len(t)==25 else 1)"
+
+  attribution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/check_attribution.sh

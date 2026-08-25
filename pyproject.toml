@@ -1,0 +1,138 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "geospatial-mcp"
+version = "0.1.0"
+description = "Geospatial MCP server: coordinates, geocoding, routing, terrain, weather and RF propagation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Yann Stoneman" }]
+keywords = [
+    "mcp", "model-context-protocol", "geospatial", "gis", "geocoding",
+    "routing", "usng", "mgrs", "terrain", "llm", "agent", "claude", "codex",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    # --- protocol -------------------------------------------------------
+    "mcp>=2.0,<3",              # MIT. Brings httpx2, pydantic, starlette, uvicorn.
+    "pydantic>=2.12",           # MIT. Tool input/output schemas.
+    # --- geometry and CRS ------------------------------------------------
+    "numpy>=2.0",               # BSD-3. Terrain arrays; already required by shapely.
+    "shapely>=2.1",             # BSD-3, bundles GEOS (LGPL-2.1, see THIRD_PARTY_NOTICES).
+    "pyproj>=3.7",              # MIT, bundles PROJ. Karney geodesics and CRS transforms.
+    "pygeodesy>=26.8",          # MIT, pure Python, zero deps. Rhumb lines,
+                                # intersections and USNG/MGRS grid references.
+    # --- grids and indexes -----------------------------------------------
+    "h3>=4.5",                  # Apache-2.0. Hexagonal hierarchical index.
+    "geohashr>=1.6",            # BSD-3. Widest wheel coverage of any geohash library.
+    "pluscodes>=2022.1.3",      # Apache-2.0. Open Location Code.
+    "mercantile>=1.2",          # BSD-3, pure Python. XYZ/quadkey tile maths.
+    # --- time and sun -----------------------------------------------------
+    "astral>=3.2",              # Apache-2.0, ~30 KB. Sun and moon.
+    "tzfpy>=1.3",               # MIT. Offline timezone lookup; see geo/timezones.py
+                                # for why this rather than timezonefinder.
+    # --- formats ----------------------------------------------------------
+    "geojson-pydantic>=2.1",    # MIT. Typed GeoJSON models.
+    "polyline>=2.0",            # MIT. Encoded polylines, ~10x smaller than GeoJSON.
+    "pyshp>=3.1",               # MIT, pure Python. Shapefile I/O without GDAL.
+]
+
+[project.optional-dependencies]
+# Every extra is opt-in and gates a toolset. Nothing here is needed for the
+# default 25 tools, and nothing here requires a system package except `raster`.
+terrain = ["pillow>=11"]                                 # HPND. Decodes Terrarium DEM tiles.
+orbit = ["sgp4>=2.27", "skyfield>=1.55"]                 # MIT. Satellite passes.
+# esda and libpysal dropped Python 3.11 at 2.10 / 4.15. Rather than raise the
+# floor for everyone -- these gate one optional toolset -- take the newest
+# release that still supports 3.11, and the current release on 3.12+.
+stats = [
+    "scikit-learn>=1.5",                              # BSD-3
+    "esda>=2.9,<2.10; python_version < '3.12'",       # BSD-3
+    "esda>=2.10; python_version >= '3.12'",
+    "libpysal>=4.12,<4.15; python_version < '3.12'",  # BSD-3
+    "libpysal>=4.15; python_version >= '3.12'",
+]
+optimize = ["fast-tsp>=0.1.5"]                           # MIT. Multi-stop ordering.
+render = ["staticmap>=0.5.7", "pillow>=11"]              # Apache-2.0.
+# `raster` is the one extra that needs GDAL and has no musl wheels. rasterio
+# also requires Python 3.12+ from 1.5, hence the split.
+raster = [
+    "rasterio>=1.4,<1.5; python_version < '3.12'",
+    "rasterio>=1.5; python_version >= '3.12'",
+    "rio-tiler>=7.0",
+    "pystac-client>=0.8",
+    "morecantile>=5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6.0",
+    "pytest-asyncio>=0.25",
+    "hypothesis>=6.120",       # MPL-2.0, dev-only: never ships in the distribution.
+    "ruff>=0.9",
+    "mypy>=1.14",
+    "pyyaml>=6.0",             # the eval runner reads evals/prompts.yaml
+]
+
+[project.scripts]
+geospatial-mcp = "geospatial_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ystoneman/geospatial-mcp"
+Issues = "https://github.com/ystoneman/geospatial-mcp/issues"
+Changelog = "https://github.com/ystoneman/geospatial-mcp/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/geospatial_mcp"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "C4", "SIM", "T20", "G", "RUF"]
+ignore = [
+    "E501",    # line length is handled by the formatter
+    "N806",    # RF code uses uppercase locals (MAPL, PL, C_m) to match the literature
+    "B008",    # Annotated[..., Field(...)] defaults are the documented MCP pattern
+    "RUF012",  # pydantic fields are validated per-instance, not shared mutable state
+    "N818",    # GeoNoResults / GeoRateLimited read better without an "Error" suffix
+    "RUF001",  # DMS notation deliberately uses the prime and double-prime characters
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["T20"]          # tests may print
+"evals/*" = ["T20"]          # the eval runner is a CLI
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+# Network tests are opt-in: `pytest -m network` runs them against live services.
+addopts = "-m 'not network' --strict-markers"
+markers = [
+    "network: hits a live external API; excluded by default, run nightly in CI",
+    "slow: takes more than a second",
+]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["geospatial_mcp"]
+mypy_path = "src"
+ignore_missing_imports = true
+warn_unused_ignores = true

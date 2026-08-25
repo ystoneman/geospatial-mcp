@@ -1,0 +1,61 @@
+name: Live APIs
+
+# The upstream services are free, shared and occasionally saturated. A failure
+# here means an upstream changed its response shape or went down -- it is a
+# signal worth acting on, but it must never block a pull request, because it is
+# not caused by the change under review.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras
+
+      - name: Provider contract tests
+        id: tests
+        continue-on-error: true
+        run: uv run pytest -q -m network
+
+      - name: Eval library against live services
+        id: evals
+        continue-on-error: true
+        run: uv run python evals/run.py --mode validate --network
+
+      - name: Open an issue if an upstream broke
+        if: steps.tests.outcome == 'failure' || steps.evals.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = 'Live API check failed';
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo,
+              state: 'open', labels: ['upstream'],
+            });
+            const body = [
+              'The nightly live-API check failed.',
+              '',
+              `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'This usually means a provider changed its response shape, is rate-limiting',
+              'the runner IP, or is temporarily down. Check the run before assuming a defect.',
+            ].join('\n');
+            if (existing.data.some(i => i.title === title)) {
+              const issue = existing.data.find(i => i.title === title);
+              await github.rest.issues.createComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                issue_number: issue.number, body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo,
+                title, body, labels: ['upstream'],
+              });
+            }

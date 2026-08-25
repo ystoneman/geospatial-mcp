@@ -1,0 +1,13 @@
+# Railway deployment. The container serves streamable HTTP.
+#
+# Railway injects PORT at runtime; cli.py binds 0.0.0.0 only when PORT is set,
+# and 127.0.0.1 otherwise. The port is deliberately not hardcoded here: pinning
+# it in the Dockerfile, the EXPOSE directive and the start command separately is
+# how those three drift out of step.
+[build]
+builder = "DOCKERFILE"
+
+[deploy]
+startCommand = "geospatial-mcp --transport http"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
