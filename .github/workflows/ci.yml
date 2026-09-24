@@ -92,7 +92,10 @@ jobs:
           uv pip install --python /tmp/clean dist/*.whl
           uv run --python /tmp/clean geospatial-mcp --version
           uv run --python /tmp/clean geospatial-mcp --list-tools > /tmp/tools.json
-          python -c "import json,sys; t=json.load(open('/tmp/tools.json')); print(f'{len(t)} tools'); sys.exit(0 if len(t)==25 else 1)"
+          # The exact count is pinned once, in tests/mcp/test_contract.py. A second
+          # copy here drifted the first time the catalogue changed; this only checks
+          # that the installed wheel serves a real catalogue.
+          python -c "import json,sys; t={x['name'] for x in json.load(open('/tmp/tools.json'))}; print(f'{len(t)} tools'); sys.exit(0 if len(t) > 15 and {'coord_convert','route_directions','rf_link_budget'} <= t else 1)"
 
   attribution:
     runs-on: ubuntu-latest
