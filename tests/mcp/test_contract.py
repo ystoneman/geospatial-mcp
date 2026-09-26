@@ -24,7 +24,9 @@ NAME_PATTERN = re.compile(
 
 #: Hard ceiling on the serialised default catalogue. Every tool definition is
 #: re-sent on every turn, so this is a recurring context cost, not a one-off.
-SCHEMA_BUDGET_CHARS = 65_000
+#: The default catalogue measures about 40,000; the headroom is room for a few
+#: more tools, not for letting existing ones grow.
+SCHEMA_BUDGET_CHARS = 50_000
 
 
 class TestNaming:
@@ -141,6 +143,15 @@ class TestSchemaBudget:
                 f"tools/list is {len(payload):,} chars, over the {SCHEMA_BUDGET_CHARS:,} budget. "
                 "Trim descriptions or response models before adding more tools."
             )
+
+    async def test_descriptions_carry_no_source_indentation(self):
+        """Docstring indentation is whitespace the model reads on every turn."""
+        async with mcp_client() as client:
+            for tool in (await client.list_tools()).tools:
+                indented = [
+                    line for line in (tool.description or "").splitlines() if line.startswith(" ")
+                ]
+                assert not indented, f"{tool.name}: {indented[0]!r}"
 
     async def test_schemas_carry_no_redundant_titles(self):
         """Pydantic emits `title: 'Distance M'` for `distance_m`. Pure restatement."""

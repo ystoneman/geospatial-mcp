@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- The default `tools/list` is about 16% smaller (47.8k to 40.0k characters).
+  Tool descriptions no longer carry docstring indentation, and the `meta`
+  definition repeated in every output schema is reduced to a bare object; the
+  server instructions describe `meta` once.
+
 ## [0.1.0]
 
 First release.

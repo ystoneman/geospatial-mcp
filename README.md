@@ -14,13 +14,13 @@ The package and command are `mcp-geospatial`. The PyPI package named
 this server.
 
 ```
-"How long to drive from the depot to the customer?"          route_directions
-"Everywhere a van can reach in 20 minutes"                   route_isochrone
-"Which depot is closest by road to each of today's jobs?"    route_matrix
-"How steep is this section of the trail?"                    terrain_profile
-"How far will a 1800 MHz cell reach over suburban ground?"   rf_link_budget
-"What's the area of this field in hectares?"                 geom_measure
-"Convert this grid reference the survey crew gave me"        coord_convert
+"Where can I live within a 30-minute drive of work?"          route_isochrone
+"Where's the nearest depot by road to each of today's jobs?"  route_matrix
+"How long to drive from the depot to the customer?"           route_directions
+"How steep is this section of the trail?"                     terrain_profile
+"How far will a 1800 MHz cell reach over suburban ground?"    rf_link_budget
+"What's the area of this field in hectares?"                  geom_measure
+"Convert this grid reference the survey crew gave me"         coord_convert
 ```
 
 ## Install
@@ -132,7 +132,7 @@ u09tunquc                geohash
 Eiffel Tower, Paris      a place name, geocoded for you
 ```
 
-### `core` — 20 tools, always on
+### `core` — 20 tools, on by default
 
 | Tool | What it answers | Offline |
 |---|---|:--:|
@@ -157,7 +157,7 @@ Eiffel Tower, Paris      a place name, geocoded for you
 | `data_convert` | GeoJSON ⇄ WKT ⇄ KML ⇄ GPX ⇄ CSV ⇄ polyline | ● |
 | `geo_capabilities` | What is enabled, and how to enable more | ● |
 
-### `rf` — 2 tools, always on
+### `rf` — 2 tools, on by default
 
 | Tool | What it answers | Offline |
 |---|---|:--:|
