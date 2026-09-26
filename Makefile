@@ -40,10 +40,10 @@ evals-network: ## Validate every eval case, including live-API ones
 	$(UV) run python evals/run.py --mode validate --network
 
 run: ## Start the server on stdio
-	$(UV) run geospatial-mcp
+	$(UV) run mcp-geospatial
 
 tools: ## Print the registered tool catalogue as JSON
-	$(UV) run geospatial-mcp --list-tools
+	$(UV) run mcp-geospatial --list-tools
 
 clean: ## Remove caches and build artefacts
 	rm -rf .pytest_cache .ruff_cache .mypy_cache dist build *.egg-info

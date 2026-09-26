@@ -148,7 +148,7 @@ class TestStdoutPurity:
 
     def test_logs_go_to_stderr(self, stdio_session):
         _, stderr = stdio_session
-        assert "geospatial-mcp" in stderr, "startup log should appear on stderr"
+        assert "mcp-geospatial" in stderr, "startup log should appear on stderr"
 
     def test_the_tool_call_actually_worked(self, stdio_session):
         lines, _ = stdio_session

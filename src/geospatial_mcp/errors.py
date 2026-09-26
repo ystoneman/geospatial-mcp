@@ -90,6 +90,6 @@ class GeoUnavailable(GeoError):
     def __init__(self, feature: str, extra: str) -> None:
         super().__init__(
             f"{feature} requires the optional '{extra}' extra, which is not installed. "
-            f"Install it with:  uvx --with 'geospatial-mcp[{extra}]' geospatial-mcp   "
-            f"(or:  pip install 'geospatial-mcp[{extra}]')"
+            f"Install it with:  uvx --with 'mcp-geospatial[{extra}]' mcp-geospatial   "
+            f"(or:  pip install 'mcp-geospatial[{extra}]')"
         )

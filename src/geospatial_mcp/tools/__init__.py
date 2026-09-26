@@ -172,9 +172,9 @@ def _require_extra(toolset: Toolset) -> None:
             f"Toolset {toolset.name!r} needs the optional '{toolset.extra}' extra, "
             f"which is not installed (missing module: {toolset.probe_module}).\n"
             f"Install it with:\n"
-            f"  uvx --with 'geospatial-mcp[{toolset.extra}]' geospatial-mcp\n"
+            f"  uvx --with 'mcp-geospatial[{toolset.extra}]' mcp-geospatial\n"
             f"or:\n"
-            f"  pip install 'geospatial-mcp[{toolset.extra}]'"
+            f"  pip install 'mcp-geospatial[{toolset.extra}]'"
         )
 
 
@@ -234,9 +234,9 @@ def register_toolsets(
             raise RuntimeError(
                 f"Toolset {name!r} needs the optional '{toolset.extra}' extra, which "
                 f"is not installed ({exc}). Install it with:\n"
-                f"  uvx --with 'geospatial-mcp[{toolset.extra}]' geospatial-mcp\n"
+                f"  uvx --with 'mcp-geospatial[{toolset.extra}]' mcp-geospatial\n"
                 f"or:\n"
-                f"  pip install 'geospatial-mcp[{toolset.extra}]'"
+                f"  pip install 'mcp-geospatial[{toolset.extra}]'"
             ) from exc
         registered.append(name)
     return registered

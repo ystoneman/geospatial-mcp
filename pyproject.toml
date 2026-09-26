@@ -3,7 +3,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "geospatial-mcp"
+name = "mcp-geospatial"
 version = "0.1.0"
 description = "Geospatial MCP server: coordinates, geocoding, routing, terrain, weather and RF propagation"
 readme = "README.md"
@@ -91,7 +91,7 @@ dev = [
 ]
 
 [project.scripts]
-geospatial-mcp = "geospatial_mcp.cli:main"
+mcp-geospatial = "geospatial_mcp.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/ystoneman/geospatial-mcp"

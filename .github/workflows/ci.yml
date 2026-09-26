@@ -96,8 +96,8 @@ jobs:
           # directory builds a fresh project .venv from source and ignores the
           # clean one, so it would never exercise the installed wheel at all.
           if [ -d clean-env/Scripts ]; then bin=clean-env/Scripts; else bin=clean-env/bin; fi
-          "$bin/geospatial-mcp" --version
-          "$bin/geospatial-mcp" --list-tools > tools.json
+          "$bin/mcp-geospatial" --version
+          "$bin/mcp-geospatial" --list-tools > tools.json
           # The exact count is pinned once, in tests/mcp/test_contract.py. A second
           # copy here drifted the first time the catalogue changed; this only checks
           # that the installed wheel serves a real catalogue.
