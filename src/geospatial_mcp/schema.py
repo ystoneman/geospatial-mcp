@@ -14,8 +14,8 @@ can use:
    {"type": "null"}]}`` collapses to ``{"type": ["number", "null"]}``, which is
    equivalent in JSON Schema and roughly half the length.
 
-Measured on this server's 25 default tools, this cuts ``tools/list`` from about
-91 KB to under 45 KB with no loss of meaning. Field ``description`` text is
+Measured on this server's 22 default tools, this cuts ``tools/list`` from about
+79 KB to about 48 KB with no loss of meaning. Field ``description`` text is
 never touched -- that is the part the model actually needs.
 """
 
@@ -29,7 +29,7 @@ __all__ = ["schema_size", "slim_schema", "slim_server_schemas"]
 _DROP_KEYS = frozenset({"title", "additionalProperties"})
 
 #: Definitions repeated verbatim in every tool's ``$defs``. Their descriptions
-#: are stated once in the server instructions instead of 25 times here.
+#: are stated once in the server instructions instead of once per tool here.
 _BOILERPLATE_DEFS = frozenset({"ResponseMeta"})
 
 
