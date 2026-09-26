@@ -33,6 +33,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -80,19 +81,31 @@ PROVIDER_KEYS = (
 
 MCP_NAME = "geospatial"
 
+#: Strings that show an agent reaching into this server's own code or checkout.
+SERVER_MARKERS = ("geospatial_mcp", "geospatial-mcp")
+
 
 # ---------------------------------------------------------------- run layout
 @dataclass
 class RunPaths:
+    """Evidence lives under ``root``; the agent works under ``scratch``.
+
+    The two are kept apart because an agent explores its working directory.
+    Our first no-server runs did so from inside this repository: the harness
+    took the whole checkout as its project, and the model imported the
+    server's own grid-reference code instead of doing the work.
+    """
+
     root: Path
+    scratch: Path | None = None
 
     @property
     def work(self) -> Path:
-        return self.root / "work"
+        return (self.scratch or self.root) / "work"
 
     @property
     def home(self) -> Path:
-        return self.root / "home"
+        return (self.scratch or self.root) / "home"
 
     @property
     def trace(self) -> Path:
@@ -111,8 +124,17 @@ class RunPaths:
         return self.root / "final.txt"
 
     def create(self) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
         for path in (self.work, self.home):
             path.mkdir(parents=True, exist_ok=True)
+
+
+def inside_git_repo(path: Path) -> Path | None:
+    """The repository ``path`` is inside, if any -- where an agent would roam."""
+    for parent in (path, *path.parents):
+        if (parent / ".git").exists():
+            return parent
+    return None
 
 
 @dataclass
@@ -121,6 +143,7 @@ class Parsed:
 
     final_text: str = ""
     harness_tools: list[str] = field(default_factory=list)  # its own tools: shell, web...
+    harness_inputs: list[str] = field(default_factory=list)  # what it ran them with
     mcp_tools: list[str] = field(default_factory=list)  # as the harness saw them
     cost_usd: float | None = None
     tokens: int | None = None
@@ -194,6 +217,7 @@ class ClaudeCode(Adapter):
                             parsed.mcp_tools.append(name[len(prefix) :])
                         else:
                             parsed.harness_tools.append(name)
+                            parsed.harness_inputs.append(json.dumps(block.get("input")))
             elif kind == "result":
                 parsed.final_text = event.get("result") or ""
                 parsed.cost_usd = event.get("total_cost_usd")
@@ -265,6 +289,7 @@ class Codex(Adapter):
                         parsed.mcp_tools.append(item.get("tool", ""))
                 elif item_type in {"command_execution", "file_change", "web_search"}:
                     parsed.harness_tools.append(item_type)
+                    parsed.harness_inputs.append(json.dumps(item))
             elif kind == "turn.completed":
                 turns += 1
                 usage = event.get("usage", {})
@@ -327,6 +352,7 @@ class OpenCode(Adapter):
                     parsed.mcp_tools.append(name[len(prefix) :])
                 else:
                     parsed.harness_tools.append(name)
+                    parsed.harness_inputs.append(json.dumps(part.get("state", {}).get("input")))
                 texts_since_tool = []
             elif kind == "text":
                 texts_since_tool.append(part.get("text", ""))
@@ -400,11 +426,17 @@ def run_case(
     out: Path,
     server_dir: Path,
     timeout_s: float,
+    scratch_base: Path,
 ) -> dict[str, Any]:
-    run = RunPaths(out / case["id"] / f"r{repeat}")
-    if run.root.exists():
-        shutil.rmtree(run.root)
+    root = out / case["id"] / f"r{repeat}"
+    if root.exists():
+        shutil.rmtree(root)
+    scratch_base.mkdir(parents=True, exist_ok=True)
+    run = RunPaths(root, Path(tempfile.mkdtemp(prefix="run-", dir=scratch_base)))
     run.create()
+    repo = inside_git_repo(run.work)
+    if repo:
+        raise SystemExit(f"refusing to run an agent inside the repository at {repo}")
     server = _server(case, run, server_dir)
     argv = adapter.command(case, run, condition, server)
     started = time.monotonic()
@@ -428,8 +460,11 @@ def run_case(
     if timed_out:
         parsed.error = f"timed out after {timeout_s:.0f}s"
     run.final.write_text(parsed.final_text, encoding="utf-8")
-    shutil.rmtree(run.home, ignore_errors=True)  # caches and logs, not evidence
     record = score(case, condition, _jsonl(run.trace), parsed, run.work)
+    # Keep what the agent wrote as evidence; drop its HOME (caches and logs).
+    shutil.copytree(run.work, run.root / "work", dirs_exist_ok=True)
+    if run.scratch:
+        shutil.rmtree(run.scratch, ignore_errors=True)
     record.update(
         harness=adapter.name,
         model=adapter.model,
@@ -471,6 +506,9 @@ def score(
         "failed_calls": len(failures),
         "upstream_failures": len(upstream),
         "used_shell": any(t.lower() in {"bash", "command_execution"} for t in parsed.harness_tools),
+        # Reaching into this server's code without the server is not doing the work.
+        "contaminated": condition != "mcp"
+        and any(marker in text for text in parsed.harness_inputs for marker in SERVER_MARKERS),
     }
 
     tools_ok: bool | None = None
@@ -495,6 +533,8 @@ def score(
     answer_ok, answer_detail = check_answer(case.get("answer"), parsed.final_text)
     artifacts_ok, artifacts_detail = check_artifacts(case.get("artifacts"), workdir)
     checks = [tools_ok, answer_ok, artifacts_ok]
+    if record["contaminated"]:
+        checks = [None]  # not a fair attempt, so not scored either way
     record.update(
         tools_ok=tools_ok,
         answer_ok=answer_ok,
@@ -528,6 +568,7 @@ def summarise(records: list[dict[str, Any]]) -> dict[str, Any]:
         "answer_ok": _rate(r["answer_ok"] for r in answered),
         "used_shell": _rate(r["used_shell"] for r in records),
         "harness_errors": sum(1 for r in records if r.get("error")),
+        "contaminated_runs": sum(1 for r in records if r.get("contaminated")),
         "upstream_outages": sum(1 for r in records if r.get("upstream_outage")),
         "mean_duration_s": _mean(r["duration_s"] for r in records),
         "mean_cost_usd": _mean(costs) if costs else None,
@@ -605,6 +646,12 @@ def main() -> int:
         help="Checkout of the server to run (e.g. a worktree of an older commit, for A/B).",
     )
     parser.add_argument("--label", default=None, help="Name for this run in reports.")
+    parser.add_argument(
+        "--scratch",
+        type=Path,
+        default=Path(tempfile.gettempdir()) / "geospatial-evals",
+        help="Where agents work. Must be outside any git repository.",
+    )
     parser.add_argument("--out", type=Path, default=None, help="Results directory.")
     parser.add_argument("--max-budget-usd", type=float, default=1.0, help="Claude Code, per run.")
     parser.add_argument(
@@ -656,14 +703,24 @@ def main() -> int:
         for case in cases:
             for k in range(1, args.repeat + 1):
                 record = run_case(
-                    adapter, case, args.condition, k, out, args.server_dir.resolve(), args.timeout
+                    adapter,
+                    case,
+                    args.condition,
+                    k,
+                    out,
+                    args.server_dir.resolve(),
+                    args.timeout,
+                    args.scratch,
                 )
                 records.append(record)
                 sink.write(json.dumps(record) + "\n")
                 sink.flush()
-                verdict = (
-                    "PASS" if record["passed"] else ("----" if not record["scored"] else "FAIL")
-                )
+                if record["passed"]:
+                    verdict = "PASS"
+                elif record["upstream_outage"]:
+                    verdict = "OUTG"  # an upstream API failed; not scored
+                else:
+                    verdict = "FAIL" if record["scored"] else "----"
                 detail = record["error"] or record.get("answer_detail") or ""
                 tools = ",".join(record["called_tools"]) or "-"
                 print(

@@ -147,6 +147,38 @@ class TestSummary:
         assert summary["by_case"] == {"a": "1/2", "b": "1/1"}
 
 
+class TestIsolation:
+    def test_agents_work_outside_the_repository_by_default(self, tmp_path):
+        """An agent inside the checkout imported the server's own code."""
+        run = harness.RunPaths(tmp_path / "evidence", tmp_path / "scratch")
+        run.create()
+        assert run.work.is_relative_to(tmp_path / "scratch")
+        assert run.home.is_relative_to(tmp_path / "scratch")
+        assert harness.inside_git_repo(run.work) is None
+
+    def test_a_directory_inside_a_repository_is_detected(self, tmp_path):
+        (tmp_path / "repo" / ".git").mkdir(parents=True)
+        nested = tmp_path / "repo" / "evals" / "results" / "work"
+        nested.mkdir(parents=True)
+        assert harness.inside_git_repo(nested) == tmp_path / "repo"
+
+    def test_a_no_server_run_that_reads_the_server_code_is_not_scored(self, tmp_path):
+        parsed = harness.Parsed(
+            final_text="57%",
+            harness_tools=["bash"],
+            harness_inputs=[
+                '{"command": "uv run python -c \'from geospatial_mcp.geo import rf\'"}'
+            ],
+        )
+        record = harness.score(CASE, "builtin", [], parsed, tmp_path)
+        assert record["contaminated"]
+        assert not record["scored"]
+
+    def test_this_checkout_would_be_refused(self):
+        here = Path(__file__).resolve().parent
+        assert harness.inside_git_repo(here) is not None
+
+
 class TestEnvironment:
     def test_only_whitelisted_variables_reach_the_harness(self, tmp_path, monkeypatch):
         monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-leak")
