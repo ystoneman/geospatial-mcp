@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `rf_link_budget` now says that `cell_area_km2` is the hexagonal area one site
+  serves in a tiled plan (2.598·r²), not the area of one isolated circular cell
+  (π·r²). Summing it for non-overlapping sites undercounted their coverage by
+  about 17%, and nothing in the schema said so.
+
 ## [0.1.0]
 
 First release.
