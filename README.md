@@ -207,6 +207,7 @@ No API key is needed for anything. Every keyed provider has a keyless default.
 | `GEO_CACHE_DIR` | Response cache location (default `~/.cache/geospatial-mcp`) |
 | `GEO_CACHE` | `0` disables the disk cache |
 | `GEO_USER_AGENT` | Override the User-Agent sent to providers |
+| `GEO_TRACE_FILE` | Append one JSON line per tool call to this file (off by default; records arguments, so it holds locations) |
 | `NOMINATIM_URL`, `PHOTON_URL`, `OVERPASS_URL`, `VALHALLA_URL`, `OPEN_METEO_BASE_URL` | Point at self-hosted instances |
 | `OPENROUTESERVICE_API_KEY` | Optional routing upgrade over the keyless default |
 | `OPENCELLID_API_KEY` | Optional; larger cell-tower database |

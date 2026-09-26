@@ -5,21 +5,30 @@ whether an agent handed a real question will *pick the right tool*. That is a
 property of the tool names, descriptions and parameter design, and it is the
 thing most likely to silently regress when a description is reworded.
 
-This directory holds a prompt library and two runners.
+This directory holds a prompt library and three ways to run it.
 
-## Two modes
+## Three runners
 
-| Mode | Needs an API key | What it proves |
+| Runner | Needs | What it proves |
 |---|---|---|
-| `--mode validate` | no | Every case references tools that exist, and the expected tool chain actually produces an answer satisfying the case's assertions. Catches drift between the library and the server. |
-| `--mode agent` | yes (`ANTHROPIC_API_KEY`) | Whether a model, given only the tool catalogue and the prompt, selects the expected tools, with sane arguments, and reaches a correct answer. |
+| `run.py --mode validate` | nothing | Every case references tools that exist, and the expected tool chain actually produces an answer satisfying the case's assertions. Catches drift between the library and the server. |
+| `run.py --mode agent` | `ANTHROPIC_API_KEY` | Whether a model, given only the tool catalogue and the prompt in a bare API loop, selects the expected tools and reaches a correct answer. |
+| `harness.py` | the harness, and its model's key | The same, inside a real agent harness -- Claude Code, Codex or opencode -- with that harness's own prompt and tools, including a shell the model can use instead. |
 
-`validate` is the cheap gate that runs in CI. `agent` is the real measure and
-runs before a release or after any tool-description change.
+`validate` is the cheap gate that runs in CI. `agent` is a quick, single-vendor
+measure. `harness.py` is closest to what people actually run, and it can show what
+the other two cannot: a model skipping this server to do the maths itself.
 
 ## Running
 
 ```bash
+# Real harnesses. Each run gets a fresh HOME and only whitelisted variables,
+# so no ambient credential is used by accident.
+uv run python evals/harness.py --harness opencode --model opencode/<model> --filter demo
+uv run python evals/harness.py --harness claude-code --condition builtin --repeat 3
+uv run python evals/harness.py --harness codex --model <model>
+uv run python evals/harness.py --report evals/results/harness-*   # compare runs
+
 uv run python evals/run.py --mode validate            # offline cases only
 uv run python evals/run.py --mode validate --network  # include live-API cases
 uv run python evals/run.py --mode agent --model claude-sonnet-5
@@ -46,6 +55,30 @@ The library is organised so that each case tests one thing that could break:
 6. **Gap awareness** — a capability that is switched off. The model should call
    `geo_capabilities` and report what to enable, not invent a tool or claim the
    task is impossible.
+7. **Correctness** — a domain rule the tool must enforce: a buffer drawn in
+   degrees, a hexagonal cell area summed as if it were a circle. Checked on the
+   answer, and on any file the agent writes.
+8. **Caveats** — uncertainty the model must pass on: an empty result that is
+   missing data rather than a true zero, a propagation model used out of range.
+
+Cases tagged `demo` are the chains shown in talks; `--filter demo` runs them.
+
+## Harness conditions
+
+`harness.py --condition` sets what the model has to work with:
+
+| Condition | Tools | Question it answers |
+|---|---|---|
+| `mcp` | the harness's own + this server | Does the model pick this server's tools, and get it right? |
+| `builtin` | the harness's own (shell, files, web) | Can it get there by writing code instead? |
+| `none` | none | What does the bare model say? |
+
+Only cases with an `answer` or `artifacts` block are run without the server,
+since tool selection cannot be scored there.
+
+Tool calls are read from the server's own trace (`GEO_TRACE_FILE`), which
+records every call as the client sent it, before validation. It is the same
+for every harness, so no harness's log format decides a score.
 
 ## Scoring
 
@@ -56,7 +89,8 @@ The library is organised so that each case tests one thing that could break:
 | Distractor rate | any `forbid_tools` was called | ≤ 0.05 |
 | Argument validity | calls passing schema validation first try | ≥ 0.95 |
 | Recovery rate | error cases resolved within `max_turns` | ≥ 0.80 |
-| Answer correctness | rubric judged, or numeric within tolerance | ≥ 0.85 |
+| Answer correctness | the case's `answer` checks: patterns, and numbers within tolerance (see `answers.py`) | ≥ 0.85 |
+| Pass every repeat | share of cases passing on all `--repeat` runs (harness runner) | reported |
 
 When a case fails, the fix is usually a tool *description*, not code. Feed the
 failing transcripts back and rewrite the description that misled the model.
