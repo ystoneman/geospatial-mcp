@@ -17,7 +17,7 @@ from pydantic import Field
 from .._sdk import MCPServer, compute, network
 from ..geo import rf
 from ..models import GeoModel, ResponseMeta
-from ._shared import meta, resolve
+from ._shared import meta, require_metres, resolve
 
 __all__ = ["register"]
 
@@ -174,6 +174,7 @@ def register(mcp: MCPServer) -> None:
         """
         from ..net.providers import cells
 
+        require_metres(radius_m, name="radius_m", example="1000  (a 1 km search radius)")
         loc = resolve(location)
         lat, lon = loc.as_tuple()
         towers, provider, cached = cells.towers_near(lat, lon, radius_m)

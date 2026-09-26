@@ -32,6 +32,20 @@ BAD_CALLS = [
         },
         "non-zero",
     ),
+    (
+        "geom_transform",
+        {
+            "geojson": '{"type":"Point","coordinates":[2,48]}',
+            "operation": "buffer",
+            "distance_m": 0.0674,
+        },
+        "looks like a distance in degrees",
+    ),
+    (
+        "rf_towers",
+        {"location": "48.86,2.29", "radius_m": 0.05},
+        "looks like a distance in degrees",
+    ),
     ("geom_overlay", {"geojson_a": "{}", "geojson_b": "{}"}, None),
     (
         "coord_transform_crs",

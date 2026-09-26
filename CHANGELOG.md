@@ -12,6 +12,11 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   serves in a tiled plan (2.598·r²), not the area of one isolated circular cell
   (π·r²). Summing it for non-overlapping sites undercounted their coverage by
   about 17%, and nothing in the schema said so.
+- Distances under 1 m are refused as probably being degrees, in
+  `geom_transform` buffers and the `rf_towers`, `place_search` and
+  `stats_cluster` (DBSCAN) radii. A model that converted 7.5 km to 0.0674 and
+  sent it as metres got a 7 cm buffer, or an empty search reported as an
+  absence of data. The error now says what happened and how to fix it.
 
 ## [0.1.0]
 
