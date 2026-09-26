@@ -273,8 +273,8 @@ self-host and set the corresponding `*_URL`. See
 git clone https://github.com/ystoneman/geospatial-mcp && cd geospatial-mcp
 uv sync --all-extras
 make check          # lint, types, tests — exactly what CI runs
-make test-network   # additionally hit the live APIs
 make evals          # tool-selection eval suite
+make evals-network  # the same, plus the cases that call live APIs
 ```
 
 See [AGENTS.md](AGENTS.md) for the layout and conventions, and

@@ -126,7 +126,7 @@ asyncio_mode = "auto"
 # Network tests are opt-in: `pytest -m network` runs them against live services.
 addopts = "-m 'not network' --strict-markers"
 markers = [
-    "network: hits a live external API; excluded by default, run nightly in CI",
+    "network: hits a live external API; excluded by default",
     "slow: takes more than a second",
 ]
 
